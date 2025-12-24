@@ -56,7 +56,6 @@ logs/
 *.log
 
 # Data Files
-*.csv
 *.xlsx
 *.xls
 *.zip
