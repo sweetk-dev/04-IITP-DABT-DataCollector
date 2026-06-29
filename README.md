@@ -10,6 +10,10 @@ collect_list.py  ->  downloader.py  ->  label_assist.py  ->  dedup.py  ->  split
  (목록 수집)          (이미지 저장)       (라벨 정규화)        (중복 검사)     (학습셋 분할)
 ```
 
+## 버전
+
+`v1.1.0` — 다중 소스 수집 계층(collectors) + 후처리 보강 모듈 3종(label_assist·dedup·split_manifest) 추가
+
 표준 입력 CSV 규격(모든 단계 공통):
 
 - 헤더(대소문자 정확): `No,Type,Title,Img-link`
