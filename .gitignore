@@ -113,3 +113,7 @@ dmypy.json
 # Local workspace meta
 .workspace/
 WORKSPACE.md
+
+# Deployment (internal infra — not public)
+deploy/
+out/
