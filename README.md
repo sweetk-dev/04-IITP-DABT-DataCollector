@@ -12,7 +12,8 @@ collect_list.py  ->  downloader.py  ->  label_assist.py  ->  dedup.py  ->  split
 
 ## 버전
 
-`v1.1.0` — 다중 소스 수집 계층(collectors) + 후처리 보강 모듈 3종(label_assist·dedup·split_manifest) 추가
+`v1.2.0` — 관광 무장애여행 공개 API 수집 + iitp_db 적재 + 주기 실행 자동화 추가
+(v1.1.0: 다중 소스 수집 계층 + 후처리 보강 모듈 3종(label_assist·dedup·split_manifest))
 
 표준 입력 CSV 규격(모든 단계 공통):
 
@@ -68,7 +69,8 @@ python collect_list.py --source SAMPLE --input insample/sample_t2.csv --out out/
 
 - `SAMPLE` (`FileImportCollector`) — 로컬 파일/목 데이터를 표준 CSV 로 정규화하는 참조 어댑터.
 - `CRAWL` (`WebCrawlCollector`) — 외부 공개 사이트를 **시드 목록 설정**으로 방문해 제목·이미지 주소를 추출하는 크롤러. robots.txt 준수·호출 간격(rate limit)·User-Agent 명시·도메인 허용목록을 기본 적용.
-- `DB` / `API` — 설계상 등록된 자리표시자(파트너 DB 연계·공개 API). 접속정보·키가 필요하여 미구현(`collectors/stubs.py`).
+- `API` (`ApiListCollector`) — 한국관광공사 **무장애여행 공개 API**(공공데이터포털)로 무장애 관광지·편의시설 정보와 이미지를 수집. 서비스키는 환경변수 `TOUR_API_KEY` 로만 읽습니다.
+- `DB` — 파트너 DB 연계 자리표시자(접속정보 필요, `collectors/stubs.py`).
 
 신규 소스 추가 = `BaseListCollector` 를 상속한 어댑터 1개 + `collectors/registry.py` 에 항목 1줄. 기존 코드는 수정하지 않습니다.
 
@@ -86,6 +88,20 @@ python collect_list.py --source CRAWL --config insample/crawl_sites.sample.json 
 > 외부 사이트 수집 시에는 대상 사이트의 robots.txt·이용약관·저작권을 먼저 확인하세요.
 > 호출 간격(`--delay` 또는 `CRAWL_DELAY`)은 1초 이상을 권장합니다. 실제 대상 주소는 설정 파일/`.env` 로
 > 분리해 두는 것을 권장합니다.
+
+### 공개 API(API) — 관광 무장애여행
+
+공공데이터포털 한국관광공사 무장애여행 OpenAPI 로 수집합니다. 서비스키는 코드에 두지 않고
+환경변수 `TOUR_API_KEY`(`.env`) 로만 읽습니다. 엔드포인트 버전은 `TOUR_API_BASE` 로 교체 가능합니다.
+
+```bash
+# .env 에 TOUR_API_KEY 설정 후
+python collect_list.py --source API --limit 500 --out out/collected.csv
+# 지역/유형 필터, 상세 이미지 추가:
+python collect_list.py --source API --area 1 --content-type 12 --with-images --limit 200 --out out/collected.csv
+```
+
+> 공개 API(라이선스 명확)를 통한 수집이므로 외부 사이트 크롤링 대비 권리 부담이 적습니다.
 
 ## 2) 이미지 다운로드 — `downloader.py`
 
@@ -139,6 +155,36 @@ python split_manifest.py out/collected_labeled.csv --ratio 8:1:1 --seed 42 --out
 ```
 
 출력: `dataset_manifest.csv` / `dataset_manifest.json`(경로·카테고리·split + 분할별·카테고리별 요약).
+
+## 6) iitp_db 적재 — `load_to_db.py` / `db_sink.py`
+
+수집·정제 결과를 관계형 DB(iitp_db)의 비정형 이미지 데이터셋 테이블
+(`dis_unst_collect_item` / `dis_unst_collect_img`)에 적재합니다. 접속정보는
+환경변수(`DB_HOST`/`DB_PORT`/`DB_NAME`/`DB_USER`/`DB_PASSWORD`, `.env`)로만 읽습니다.
+
+```bash
+python load_to_db.py out/collected_labeled.csv --ext-sys TOUR_BF_API
+```
+
+- 출처 코드(`--ext-sys`): `TOUR_BF_API` / `ABLEJOB` / `WEB_CRAWL`
+- UNIQUE 제약 기반 idempotent upsert(재실행 시 중복 없음)
+- DB 적재에는 `psycopg2-binary` 가 필요합니다(`requirements.txt` 포함, 드라이버 미설치 시 import/테스트는 정상).
+
+## 7) 주기 실행 자동화 — `run_pipeline.py` / `scheduler.py`
+
+전체 흐름(collect → label → 다운로드 → DB 적재)을 한 번에 실행하거나 주기적으로 돌립니다.
+설정은 모두 환경변수(`.env`)로 주입합니다.
+
+```bash
+# 1회 실행
+python run_pipeline.py --source API --ext-sys TOUR_BF_API --limit 500 --download --to-db --out-dir out
+
+# 주기 실행(cron 스케줄, APScheduler) / 즉시 1회
+python scheduler.py            # SCHED_CRON 스케줄대로
+python scheduler.py --now      # 즉시 1회
+```
+
+> 배포 환경 구성(서비스 등록·스케줄·접속정보)은 운영 환경의 `.env` 와 내부 배포 가이드를 따릅니다(공개 저장소에 포함하지 않음).
 
 ## 테스트
 
