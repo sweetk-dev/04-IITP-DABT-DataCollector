@@ -66,10 +66,26 @@ python collect_list.py --source SAMPLE --input insample/sample_t2.csv --out out/
 
 소스 어댑터 구조(`collectors/`):
 
-- `SAMPLE` (`FileImportCollector`) — 로컬 파일/목 데이터를 표준 CSV 로 정규화하는 동작하는 참조 어댑터.
-- `DB` / `CRAWL` / `API` — 설계상 등록된 자리표시자(파트너 DB 연계·외부 사이트·공개 API). 접속정보·키·권리 검토가 필요하여 본 패키지에는 미구현(`collectors/stubs.py`).
+- `SAMPLE` (`FileImportCollector`) — 로컬 파일/목 데이터를 표준 CSV 로 정규화하는 참조 어댑터.
+- `CRAWL` (`WebCrawlCollector`) — 외부 공개 사이트를 **시드 목록 설정**으로 방문해 제목·이미지 주소를 추출하는 크롤러. robots.txt 준수·호출 간격(rate limit)·User-Agent 명시·도메인 허용목록을 기본 적용.
+- `DB` / `API` — 설계상 등록된 자리표시자(파트너 DB 연계·공개 API). 접속정보·키가 필요하여 미구현(`collectors/stubs.py`).
 
 신규 소스 추가 = `BaseListCollector` 를 상속한 어댑터 1개 + `collectors/registry.py` 에 항목 1줄. 기존 코드는 수정하지 않습니다.
+
+### 외부 사이트 크롤링(CRAWL)
+
+대상 사이트는 JSON 설정 파일로 지정합니다(`insample/crawl_sites.sample.json` 참고). 각 항목은
+`seeds`(시작 URL 목록)와 선택적으로 `type`(분류 힌트), `link_pattern`(목록 페이지에서 따라갈 상세 링크 정규식),
+`max_items`, `allow_domains` 를 가집니다. `link_pattern` 이 없으면 시드 페이지 자체에서 추출합니다.
+
+```bash
+python collect_list.py --source CRAWL --config insample/crawl_sites.sample.json \
+    --delay 1.0 --out out/collected.csv
+```
+
+> 외부 사이트 수집 시에는 대상 사이트의 robots.txt·이용약관·저작권을 먼저 확인하세요.
+> 호출 간격(`--delay` 또는 `CRAWL_DELAY`)은 1초 이상을 권장합니다. 실제 대상 주소는 설정 파일/`.env` 로
+> 분리해 두는 것을 권장합니다.
 
 ## 2) 이미지 다운로드 — `downloader.py`
 

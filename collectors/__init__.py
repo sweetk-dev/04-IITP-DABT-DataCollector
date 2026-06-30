@@ -1,9 +1,9 @@
 """List-collection layer for 04-IITP-DABT-DataCollector.
 
 Plugin-style architecture: each source is a ``BaseListCollector`` subclass
-selected by a registry key. The reference adapter (``SAMPLE`` /
-``FileImportCollector``) ships working in v1.0; partner-DB, public-API and
-crawl adapters are registered placeholders (``collectors/stubs.py``).
+selected by a registry key. Working adapters: ``SAMPLE`` (file/mock import)
+and ``CRAWL`` (seed-list external crawler). Partner-DB and public-API adapters
+are registered placeholders (``collectors/stubs.py``).
 
 Quick usage::
 
@@ -24,7 +24,9 @@ Adding a new source (skeleton)::
 from .base import BaseListCollector, STANDARD_HEADERS  # noqa: F401
 from .registry import REGISTRY, available_sources, get_collector, DEFAULT_SOURCE  # noqa: F401
 from .sample_file import FileImportCollector  # noqa: F401
-from .stubs import ApiListCollector, DbListCollector, WebCrawlCollector  # noqa: F401
+from .web_crawl import WebCrawlCollector  # noqa: F401
+from .stubs import DbListCollector  # noqa: F401
+from .tour_api import ApiListCollector  # noqa: F401
 
 __all__ = [
     "BaseListCollector",
@@ -34,7 +36,7 @@ __all__ = [
     "available_sources",
     "get_collector",
     "FileImportCollector",
-    "DbListCollector",
     "WebCrawlCollector",
+    "DbListCollector",
     "ApiListCollector",
 ]
