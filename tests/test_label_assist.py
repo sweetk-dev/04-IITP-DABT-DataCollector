@@ -67,5 +67,34 @@ class StatsTest(unittest.TestCase):
         self.assertAlmostEqual(sum(s["ratio"] for s in stats), 1.0, places=4)
 
 
+class ExternalRulesTest(unittest.TestCase):
+    def test_load_and_apply_external_rules(self):
+        import json, tempfile
+        custom = {"categories": [
+            {"category": "특수", "domain": "테스트", "keywords": ["특수키워드"]}]}
+        with tempfile.TemporaryDirectory() as d:
+            rp = Path(d) / "rules.json"
+            rp.write_text(json.dumps(custom, ensure_ascii=False), encoding="utf-8")
+            rules = la.get_rules(str(rp))
+            self.assertEqual(la.classify("이건 특수키워드", rules)[0], "특수")
+            # default-only keyword should now miss under the custom rule set
+            self.assertEqual(la.classify("채용 공고", rules)[0], la.UNCLASSIFIED)
+
+    def test_get_rules_defaults_when_none(self):
+        self.assertIs(la.get_rules(None), la.DEFAULT_RULES)
+
+    def test_invalid_rules_file_raises(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            rp = Path(d) / "bad.json"
+            rp.write_text("{ not json", encoding="utf-8")
+            with self.assertRaises(SystemExit):
+                la.load_rules(rp)
+
+    def test_expanded_keywords(self):
+        self.assertEqual(la.classify("보호작업장 바리스타 채용")[1], la.DOMAIN_EMPLOYMENT)
+        self.assertEqual(la.classify("교통약자 저상버스 이동지원")[0], "이동시설/이동경로")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -21,7 +21,7 @@ from collectors import (
     get_collector,
     STANDARD_HEADERS,
 )
-from collectors.stubs import ApiListCollector, DbListCollector, WebCrawlCollector
+from collectors.stubs import DbListCollector
 
 
 class ToCsvTest(unittest.TestCase):
@@ -91,9 +91,9 @@ class RegistryTest(unittest.TestCase):
             get_collector("NOPE")
 
     def test_deferred_adapters_raise_not_implemented(self):
-        for cls in (DbListCollector, WebCrawlCollector, ApiListCollector):
-            with self.assertRaises(NotImplementedError):
-                cls().collect()
+        # Only the partner-DB source remains a deferred stub.
+        with self.assertRaises(NotImplementedError):
+            DbListCollector().collect()
 
 
 if __name__ == "__main__":

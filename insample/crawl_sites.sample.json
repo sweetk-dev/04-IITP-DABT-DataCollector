@@ -1,0 +1,23 @@
+[
+  {
+    "name": "example-notice-board",
+    "seeds": [
+      "https://example.org/notice/list"
+    ],
+    "type": "",
+    "link_pattern": "/notice/view\\?id=\\d+",
+    "max_items": 50,
+    "allow_domains": [
+      "example.org",
+      "cdn.example.org"
+    ]
+  },
+  {
+    "name": "example-single-pages",
+    "seeds": [
+      "https://example.org/event/2025-fair",
+      "https://example.org/edu/course-intro"
+    ],
+    "type": "교육"
+  }
+]

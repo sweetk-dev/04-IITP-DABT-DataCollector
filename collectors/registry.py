@@ -12,15 +12,17 @@ from typing import Dict, Type
 
 from .base import BaseListCollector
 from .sample_file import FileImportCollector
-from .stubs import ApiListCollector, DbListCollector, WebCrawlCollector
+from .stubs import DbListCollector
+from .tour_api import ApiListCollector
+from .web_crawl import WebCrawlCollector
 
 DEFAULT_SOURCE = "SAMPLE"
 
 # Registry key -> collector class. Keys match each class ``SOURCE`` attribute.
 REGISTRY: Dict[str, Type[BaseListCollector]] = {
     FileImportCollector.SOURCE: FileImportCollector,
-    DbListCollector.SOURCE: DbListCollector,
     WebCrawlCollector.SOURCE: WebCrawlCollector,
+    DbListCollector.SOURCE: DbListCollector,
     ApiListCollector.SOURCE: ApiListCollector,
 }
 
