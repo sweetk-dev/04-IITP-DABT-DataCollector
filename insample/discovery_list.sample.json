@@ -1,0 +1,12 @@
+{
+  "장애인 채용": [
+    "https://example.org/jobs/list",
+    "https://example.org/jobs/notice"
+  ],
+  "장애인 교육": [
+    "https://example.org/edu/list"
+  ],
+  "무장애 관광": [
+    "https://example.org/tour/barrier-free"
+  ]
+}
