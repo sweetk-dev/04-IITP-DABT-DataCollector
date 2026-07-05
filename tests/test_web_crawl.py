@@ -112,7 +112,7 @@ class CrawlTest(unittest.TestCase):
         # only the two example.org items (other.com is off-allowlist)
         self.assertEqual(len(rows), 2)
         nos = sorted(r["No"] for r in rows)
-        self.assertEqual(nos, ["11", "22"])
+        self.assertEqual(nos, ["t:11", "t:22"])
         for r in rows:
             self.assertEqual(r["Type"], "행사")
             self.assertTrue(r["Title"])
@@ -126,7 +126,7 @@ class CrawlTest(unittest.TestCase):
         )
         rows = c.collect()
         self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["No"], "11")
+        self.assertEqual(rows[0]["No"], "s:11")
         self.assertEqual(rows[0]["Type"], "")  # left blank for label_assist
 
     def test_max_items(self):
@@ -193,7 +193,7 @@ class RobustnessTest(unittest.TestCase):
         c = WebCrawlCollector(sites=[site], respect_robots=False, delay=0,
                               session=_FakeSession(pages))
         rows = c.collect()
-        self.assertEqual(sorted(r["No"] for r in rows), ["1", "2"])
+        self.assertEqual(sorted(r["No"] for r in rows), ["t:1", "t:2"])
 
     def test_duplicate_item_urls_deduped(self):
         # both list pages link to the SAME item -> one row only
