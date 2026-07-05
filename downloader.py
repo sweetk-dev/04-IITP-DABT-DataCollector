@@ -322,11 +322,26 @@ def download_one(url: str, row: Dict[str, str], output_dir: Path, session: reque
 		filename = build_filename(no_val, type_val, title_val, final_ext, ts, index_suffix=index_suffix)
 		out_path = output_dir / filename
 
-		# Write to disk
-		with out_path.open("wb") as out_f:
-			for chunk in resp.iter_content(chunk_size=8192):
-				if chunk:
-					out_f.write(chunk)
+		# Write to a temp file first, then atomically move into place so a
+		# broken transfer can never leave a truncated image under the final name.
+		tmp_path = out_path.with_suffix(out_path.suffix + ".part")
+		try:
+			with tmp_path.open("wb") as out_f:
+				for chunk in resp.iter_content(chunk_size=8192):
+					if chunk:
+						out_f.write(chunk)
+			expected_len = resp.headers.get("Content-Length", "")
+			if expected_len.isdigit() and tmp_path.stat().st_size != int(expected_len):
+				raise IOError(
+					f"incomplete download: {tmp_path.stat().st_size}/{expected_len} bytes"
+				)
+			os.replace(str(tmp_path), str(out_path))
+		except Exception:
+			try:
+				tmp_path.unlink()
+			except OSError:
+				pass
+			raise
 
 		logger.info("Saved: %s", out_path)
 		return True, None
