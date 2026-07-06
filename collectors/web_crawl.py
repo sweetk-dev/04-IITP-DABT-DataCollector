@@ -133,18 +133,24 @@ _ID_QUERY_KEYS = ("id", "uid", "idxno", "no", "seq", "idx", "bid", "wr_id",
                   "bo_id", "articleno", "ntt_id", "nttid")
 
 
-def _derive_no(url: str) -> str:
+def _derive_no(url: str, site: str = "") -> str:
     """Stable per-item id: a numeric id query param, else trailing path
     digits, else a short md5 of the URL (so every item still gets a stable id).
+
+    Numeric ids are namespaced with the site name (``site:123``) so that the
+    same trailing number on two different sites cannot collide into one
+    (ext_sys, src_no) upsert key downstream. The md5 fallback is derived from
+    the full URL and therefore needs no namespace.
     """
     parts = urlsplit(url)
     query = dict(parse_qsl(parts.query))
+    prefix = f"{site}:" if site else ""
     for key in query:
         if key.lower() in _ID_QUERY_KEYS and query[key].isdigit():
-            return query[key]
+            return prefix + query[key]
     m = re.search(r"(\d+)\D*$", parts.path)
     if m:
-        return m.group(1)
+        return prefix + m.group(1)
     return hashlib.md5(url.encode("utf-8")).hexdigest()[:10]
 
 
@@ -314,10 +320,17 @@ class WebCrawlCollector(BaseListCollector):
         host = urlparse(url).scheme + "://" + urlparse(url).netloc
         rp = self._robots.get(host, "missing")
         if rp == "missing":
-            rp = RobotFileParser()
-            rp.set_url(urljoin(host, "/robots.txt"))
+            # Fetch via the crawler session (project UA + timeout) instead of
+            # RobotFileParser.read(), which has no socket timeout and can hang
+            # a scheduled batch indefinitely on an unresponsive host.
             try:
-                rp.read()
+                resp = self._session.get(urljoin(host, "/robots.txt"), timeout=DEFAULT_TIMEOUT)
+                if resp.status_code == 200:
+                    rp = RobotFileParser()
+                    rp.parse(resp.text.splitlines())
+                else:
+                    logger.debug("CRAWL: robots status %s for %s; allowing", resp.status_code, host)
+                    rp = None
             except Exception as exc:  # network/parse error -> be permissive but log
                 logger.debug("CRAWL: robots fetch failed for %s (%s); allowing", host, exc)
                 rp = None
@@ -420,18 +433,18 @@ class WebCrawlCollector(BaseListCollector):
                     item_html = self._fetch(item_url)
                     if item_html is None:
                         continue
-                    rows.append(self._row_from(item_url, item_html, type_hint))
+                    rows.append(self._row_from(item_url, item_html, type_hint, site.get("name") or ""))
             else:
                 if seed in self._seen_urls:
                     continue
                 self._seen_urls.add(seed)
-                rows.append(self._row_from(seed, html, type_hint))
+                rows.append(self._row_from(seed, html, type_hint, site.get("name") or ""))
         return rows
 
-    def _row_from(self, url: str, html: str, type_hint: str) -> Dict[str, str]:
+    def _row_from(self, url: str, html: str, type_hint: str, site_name: str = "") -> Dict[str, str]:
         data = extract_items_from_html(html, url, type_hint)
         return {
-            "No": _derive_no(url),
+            "No": _derive_no(url, site_name),
             "Type": type_hint,
             "Title": data["title"],
             "Img-link": "\n".join(data["images"]),
