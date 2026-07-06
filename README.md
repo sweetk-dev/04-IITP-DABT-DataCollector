@@ -12,7 +12,8 @@ collect_list.py  ->  downloader.py  ->  label_assist.py  ->  dedup.py  ->  split
 
 ## 버전
 
-`v1.2.0` — 관광 무장애여행 공개 API 수집 + iitp_db 적재 + 주기 실행 자동화 추가
+`v1.2.1` — 크롤 항목 ID 사이트 네임스페이스 분리 + robots 취득 타임아웃 + 다운로드 원자적 저장
+(v1.2.0: 관광 무장애여행 공개 API 수집 + iitp_db 적재 + 주기 실행 자동화 추가)
 (v1.1.0: 다중 소스 수집 계층 + 후처리 보강 모듈 3종(label_assist·dedup·split_manifest))
 
 표준 입력 CSV 규격(모든 단계 공통):
