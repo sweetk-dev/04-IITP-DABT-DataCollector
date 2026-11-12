@@ -50,6 +50,7 @@ class ClassifyTest(unittest.TestCase):
             self.assertEqual(runner.classify_file(_w(d / "d.pdf", b"x" * 10), "기초"), "small")
             self.assertEqual(runner.classify_file(_w(d / "download_log.csv", b"x" * 5000), "기초"), "log")
             self.assertEqual(runner.classify_file(_w(d / "run_2026Q4.log", b"x" * 5000), "기초"), "log")
+            self.assertEqual(runner.classify_file(_w(d / "debug_detail_fail.png", b"x" * 50000), "이동권"), "log")
             self.assertIsNone(runner.classify_file(_w(d / "e.jpg", b"x" * 50000), "이동권"))
             self.assertEqual(runner.classify_file(_w(d / "icon.png", b"x" * 500), "이동권"), "small")
             self.assertEqual(runner.classify_file(_w(d / "f.pdf", b"x" * 50000), "이동권"), "ext")
