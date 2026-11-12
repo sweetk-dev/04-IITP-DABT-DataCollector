@@ -55,6 +55,16 @@ ON CONFLICT (item_id, img_url) DO NOTHING
 RETURNING img_id;
 """
 
+# 원천 목록에서 사라진 이미지(원천이 사진을 바꿔 URL 이 달라진 경우 등)를 삭제 표시한다.
+# 행은 지우지 않는다(del_yn='Y'). 같은 순번에 새 URL 행이 새로 들어오므로, 이 처리가 없으면
+# 옛 URL 행이 계속 "받아야 할 사진" 으로 남는다.
+SQL_RETIRE_IMG = """
+UPDATE public.dis_unst_collect_img
+   SET del_yn = 'Y', deleted_at = CURRENT_TIMESTAMP, deleted_by = %(updated_by)s
+ WHERE item_id = %(item_id)s AND COALESCE(del_yn, 'N') = 'N'
+   AND NOT (img_url::text = ANY(%(urls)s::text[]));
+"""
+
 SQL_UPDATE_DOWNLOAD = """
 UPDATE public.dis_unst_collect_img
    SET local_path = %(local_path)s, file_ext = %(file_ext)s,
@@ -124,6 +134,8 @@ class DbSink:
         return item_id
 
     def upsert_images(self, item_id: int, urls: Iterable[str]) -> int:
+        """이미지 행을 넣고, 이번 목록에 없는 기존 이미지 행은 삭제 표시한다."""
+        urls = list(urls)
         cur = self.conn.cursor()
         n = 0
         for order, url in enumerate(urls, start=1):
@@ -132,6 +144,7 @@ class DbSink:
                 "img_url": url, "created_by": self.created_by,
             })
             n += 1
+        cur.execute(SQL_RETIRE_IMG, {"item_id": item_id, "urls": urls, "updated_by": self.created_by})
         cur.close()
         return n
 
