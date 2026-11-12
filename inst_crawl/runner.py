@@ -9,6 +9,7 @@
   1. 잡파일(수집 로그·아이콘·썸네일·대상 밖 확장자)을 거르고
   2. 내용 해시(SHA-256)가 이전 실행 또는 기준 해시 목록에 있으면 건너뛰고
   3. 처음 보는 파일만 `<out>/<기간>/<구분>/<분류>/<수집기>/` 로 복사한 뒤
+     (사진 수집기에 장소별 분류표(place_types)가 있으면 파일 이름의 장소명으로 분류를 정하고, 표에 없는 장소는 「미분류」)
   4. `<out>/<기간>/manifest.csv`(파일별 목록)와 `summary.json`(수집기별 건수)을 남긴다.
 본 해시는 `<work>/_ledger.tsv` 에 쌓여 다음 실행의 중복 판정에 쓰인다.
 
@@ -26,6 +27,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -52,6 +54,33 @@ LOG_NAMES = {"download_log.csv", "run.log"}
 MIN_BYTES = {"기초": 1024, "이동권": 10 * 1024}   # 이보다 작으면 빈 파일·아이콘·썸네일로 본다
 
 MANIFEST_COLS = ["기간", "구분", "분류", "수집기", "파일", "크기", "sha256", "수집일시", "자동수집"]
+
+UNKNOWN = "미분류"
+
+
+def norm_place(s: str) -> str:
+    return re.sub(r"\s+", "", s or "")
+
+
+def place_of(filename: str) -> str:
+    """사진 파일 이름에서 장소명을 뽑는다.
+
+    `<장소>_<번호>.jpg`(현재 수집기) 와 `<장소>_무장애관광 시설 편의시설 <번호>.jpg`(2025 저장본) 둘 다 읽는다.
+    """
+    stem = filename.rsplit(".", 1)[0]
+    if "_무장애관광" in stem:
+        return stem.split("_무장애관광", 1)[0].strip()
+    head, _, tail = stem.rpartition("_")
+    return (head if head and tail.isdigit() else stem).strip()
+
+
+def load_place_types(site: dict) -> Optional[Dict[str, str]]:
+    """sites.json 의 place_types(장소,분류 CSV) — 장소명(공백 무시) → 분류."""
+    rel = site.get("place_types")
+    if not rel:
+        return None
+    with open(HERE / rel, encoding="utf-8-sig") as f:
+        return {norm_place(r["장소"]): r["분류"] for r in csv.DictReader(f) if r.get("장소")}
 
 
 def period_of(day: _dt.date) -> str:
@@ -156,6 +185,10 @@ def collect_new(sites: List[dict], work: Path, out: Path, period: str, ledger: L
         wd = work / site["name"]
         st = {"seen": 0, "new": 0, "dup": 0, "skip_log": 0, "skip_ext": 0, "skip_small": 0, "bytes": 0}
         stats[site["name"]] = st
+        types = load_place_types(site)
+        unknown: Dict[str, int] = {}
+        if types is not None:
+            st["unknown_places"] = unknown
         if not wd.is_dir():
             continue
         for p in sorted(wd.rglob("*")):
@@ -168,19 +201,25 @@ def collect_new(sites: List[dict], work: Path, out: Path, period: str, ledger: L
             if why:
                 continue
             st["seen"] += 1
+            cls = site["분류"]
+            if types is not None:
+                place = place_of(p.name)
+                cls = types.get(norm_place(place), UNKNOWN)
+                if cls == UNKNOWN:
+                    unknown[place] = unknown.get(place, 0) + 1
             h = sha256_of(p)
             if h in ledger.seen:
                 st["dup"] += 1
                 continue
             ledger.seen.add(h)
             rel = p.relative_to(wd).as_posix()
-            dst = pdir / site["구분"] / site["분류"] / site["name"] / rel
+            dst = pdir / site["구분"] / cls / site["name"] / rel
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(p, dst)
             size = p.stat().st_size
             st["new"] += 1
             st["bytes"] += size
-            new_rows.append({"기간": period, "구분": site["구분"], "분류": site["분류"], "수집기": site["name"],
+            new_rows.append({"기간": period, "구분": site["구분"], "분류": cls, "수집기": site["name"],
                              "파일": rel, "크기": size, "sha256": h, "수집일시": now, "자동수집": "Y"})
     if new_rows or not (pdir / "manifest.csv").exists():
         pdir.mkdir(parents=True, exist_ok=True)
@@ -262,6 +301,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         st = stats[s["name"]]
         logger.info("  %-28s 새 파일 %4d · 이미 있음 %4d · 거름 %d", s["name"], st["new"], st["dup"],
                     st["skip_log"] + st["skip_ext"] + st["skip_small"])
+    for s in sites:
+        unk = stats[s["name"]].get("unknown_places")
+        if unk:
+            logger.warning("  %s — 분류표에 없는 장소 %d곳(%s): %s", s["name"], len(unk), UNKNOWN,
+                           ", ".join(sorted(unk)[:20]) + (" …" if len(unk) > 20 else ""))
     logger.info("%s 새 파일 합계 %d → %s", period, sum(st["new"] for st in stats.values()), path)
     bad = [n for n, r in runs.items() if r.get("rc") not in (0,)]
     return 1 if bad and len(bad) == len(runs) else 0

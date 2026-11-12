@@ -4,4 +4,5 @@ certifi>=2024.2.2
 urllib3>=2.0
 tqdm>=4.66
 selenium>=4.20
+playwright>=1.45   # 설치 뒤 `playwright install chromium`
 webdriver-manager>=4.0

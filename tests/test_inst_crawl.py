@@ -139,5 +139,39 @@ class SitesConfigTest(unittest.TestCase):
             self.assertEqual(s["new_total"], 1)
 
 
+class PlaceTypesTest(unittest.TestCase):
+    def test_place_of(self):
+        self.assertEqual(runner.place_of("과천 렛츠런파크_3.jpg"), "과천 렛츠런파크")
+        self.assertEqual(runner.place_of("가나아트파크_무장애관광 시설 편의시설 2.jpg"), "가나아트파크")
+        self.assertEqual(runner.place_of("이름만.jpg"), "이름만")
+
+    def test_classified_per_place_and_unknown_reported(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            types_dir = d / "pkg"
+            _w(types_dir / "place_types" / "t.csv",
+               "장소,분류,비고\n과천 렛츠런파크,체험,\n가평 자라섬,관람_자연,\n".encode("utf-8-sig"))
+            site = dict(SITE_IMG, 분류="미분류", place_types="place_types/t.csv")
+            wd = d / "work" / site["name"]
+            _w(wd / "img" / "과천 렛츠런파크_1.jpg", b"A" * 20000)
+            _w(wd / "img" / "가평  자라섬_1.jpg", b"B" * 20000)       # 공백 차이는 같은 장소
+            _w(wd / "img" / "새로운 장소_1.jpg", b"C" * 20000)
+            with mock.patch.object(runner, "HERE", types_dir):
+                st = runner.collect_new([site], d / "work", d / "out", "2027Q1",
+                                        runner.Ledger(d / "work" / runner.LEDGER_NAME))[site["name"]]
+            got = {r["파일"]: r["분류"] for r in _manifest(d / "out", "2027Q1")}
+            self.assertEqual(got, {"img/과천 렛츠런파크_1.jpg": "체험", "img/가평  자라섬_1.jpg": "관람_자연",
+                                   "img/새로운 장소_1.jpg": "미분류"})
+            self.assertEqual(st["unknown_places"], {"새로운 장소": 1})
+            self.assertTrue((d / "out" / "2027Q1" / "이동권" / "체험" / site["name"] / "img" / "과천 렛츠런파크_1.jpg").is_file())
+
+    def test_shipped_place_types_cover_2025_places(self):
+        for s in runner.load_sites():
+            types = runner.load_place_types(s)
+            if types is not None:
+                self.assertGreater(len(types), 0)
+                self.assertTrue(set(types.values()) <= {"관람_시설", "관람_자연", "체험", "활동", "카페", "식당", "쇼핑"})
+
+
 if __name__ == "__main__":
     unittest.main()
