@@ -19,7 +19,7 @@ sites/<기관>.py   →   작업 폴더(<work>/<기관>/)   →   새 파일 고
 | 기초 | 문서(pdf·hwp·hwpx·doc(x)·xls(x)·ppt(x)·zip·alz·txt·csv), 1KB 이상 | 기관 자료실 21개(사용 18) |
 | 이동권 | 사진(jpg·png·gif·webp·bmp), 10KB 이상 | 무장애 여행 3개(사용 1) |
 
-분류는 2025년 제출 분류(기관 11군·무장애 여행 수집처)를 그대로 쓴다.
+분류는 2025년 제출 분류를 그대로 쓴다 — 기관 자료실은 기관 11군, 무장애 여행 사진은 장소별 유형(관람_시설·관람_자연·체험·활동·카페 등, 아래 「새 파일 고르기」).
 `enabled: false` 는 사이트 구조가 바뀌어 지금 수집기로는 받지 못하는 곳이다(`note` 에 이유). 고치면 `true` 로 돌린다.
 
 ## 실행
@@ -45,7 +45,7 @@ python -m inst_crawl.runner ... --seed-hashes base_sha256.txt                 # 
 | `INST_TIMEOUT` | `14400` | 수집기 1개당 최대 실행 초 |
 | `INST_PYTHON` | 실행 중인 python | 수집기를 돌릴 python |
 
-사진 수집기(경기관광공사)는 Chrome 과 selenium 을 쓴다.
+사진 수집기(경기관광공사)는 Playwright(Chromium)를 쓴다 — `playwright install chromium`. 꺼 둔 교보·한국관광공사 수집기는 selenium·Chrome.
 
 ## 새 파일 고르기
 
@@ -54,6 +54,10 @@ python -m inst_crawl.runner ... --seed-hashes base_sha256.txt                 # 
 3. 내용 해시(SHA-256)가 원장 `<work>/_ledger.tsv` 에 있으면 이미 받은 파일로 보고 건너뛴다.
    원장에는 지난 실행에서 고른 파일과 `--seed-hashes` 로 넣은 기준 해시가 쌓인다.
 4. 처음 보는 파일만 `<out>/<기간>/<구분>/<분류>/<수집기>/<원래 상대경로>` 로 복사한다.
+
+사진 수집기는 분류를 장소 단위로 정한다. `sites.json` 의 `place_types` 가 가리키는 CSV(`장소,분류,비고`)에서 파일 이름의 장소명(`<장소>_<번호>.jpg`, 공백 무시)을 찾아 분류를 붙이고, 표에 없는 새 장소는 `미분류` 로 받은 뒤 실행 로그와 `summary.json` 의 `unknown_places` 에 장소명을 남긴다. 새 장소의 분류를 정해 CSV 에 한 줄 더하고 `--no-run` 으로 다시 정리하면 된다(이미 고른 파일은 기간 폴더에서 옮겨야 한다).
+
+`place_types/경기관광공사 무장애여행정보.csv` — 2025년 제출 때 장소별로 나눈 분류(198곳). 한 장소가 두 분류에 걸쳐 있던 2곳은 비고에 적었다.
 
 기간은 실행일의 분기(`2026Q4`)다. 같은 분기에 다시 돌리면 같은 기간 폴더에 이어서 쌓인다.
 

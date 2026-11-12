@@ -21,13 +21,14 @@ def guess_ext(url: str) -> str:
     m = re.search(r"\.(jpg|jpeg|png|gif|webp|bmp|tif|tiff)(?:\?|#|$)", urlparse(url).path.lower())
     return f".{m.group(1)}" if m else ".jpg"
 
-def save_image(img_url: str, alt_text: str, referer: str):
-    fname = clean_filename(alt_text) + guess_ext(img_url)
-    path = os.path.join(SAVE_DIR, fname)
-    i = 1
-    while os.path.exists(path):
-        path = os.path.join(SAVE_DIR, f"{clean_filename(alt_text)}_{i}{guess_ext(img_url)}")
-        i += 1
+def save_image(img_url: str, place: str, idx: int, referer: str):
+    """<장소>_<상세 페이지 안 순번>.<확장자> 로 저장한다. 같은 이름이 이미 있으면 다시 받지 않는다.
+
+    장소명은 분류(관람_시설·관람_자연 등)를 장소 단위로 정하는 데 쓴다.
+    """
+    path = os.path.join(SAVE_DIR, f"{clean_filename(place)}_{idx}{guess_ext(img_url)}")
+    if os.path.exists(path) and os.path.getsize(path) > 0:
+        return None
     headers = {"User-Agent": "Mozilla/5.0", "Referer": referer}
     with requests.get(img_url, headers=headers, timeout=30, stream=True) as r:
         r.raise_for_status()
@@ -107,14 +108,19 @@ async def crawl():
                                 alt: img.getAttribute('alt') || ''
                             }))"""
                     )
-                    print(f"   - [{durl}] 이미지 {len(imgs)}건")
-                    for it in imgs:
+                    # 장소명: 페이지 제목 "<장소> | 무장애 관광지 | ..." 의 첫 부분
+                    place = ((await dpage.title()) or "").split("|")[0].strip()
+                    if not place:
+                        place = (await dpage.eval_on_selector("p.tit", "el => el?.textContent || ''")).strip() or "장소미상"
+                    print(f"   - [{durl}] {place} 이미지 {len(imgs)}건")
+                    for idx, it in enumerate(imgs, 1):
                         src = (it.get("src") or "").strip()
                         if not src: continue
                         abs_img = urljoin(durl, src)
-                        alt = (it.get("alt") or "").strip() or "image"
                         try:
-                            saved_path = save_image(abs_img, alt, referer=durl)
+                            saved_path = save_image(abs_img, place, idx, referer=durl)
+                            if saved_path is None:
+                                continue
                             total_saved += 1
                             print("     · 저장:", os.path.basename(saved_path))
                         except Exception as e:
