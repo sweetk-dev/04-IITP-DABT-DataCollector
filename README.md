@@ -12,7 +12,8 @@ collect_list.py  ->  downloader.py  ->  label_assist.py  ->  dedup.py  ->  split
 
 ## 버전
 
-`v1.3.0` — 주기 실행 이미지 저장 방식 변경: 같은 사진을 다시 받지 않고 고정 경로에 한 번만 저장, 파일 경로·해시·중복 여부를 DB 에 기록
+`v1.4.0` — 기관 자료실 정기 수집(`inst_crawl/`) 추가: 기관별 수집기를 분기마다 돌려 지난번에 없던 첨부 문서·사진만 골라 기간별 목록으로 남김
+(v1.3.0: 주기 실행 이미지 저장 방식 변경 — 같은 사진을 다시 받지 않고 고정 경로에 한 번만 저장, 파일 경로·해시·중복 여부를 DB 에 기록)
 (v1.2.1: 크롤 항목 ID 사이트 네임스페이스 분리 + robots 취득 타임아웃 + 다운로드 원자적 저장)
 (v1.2.0: 관광 무장애여행 공개 API 수집 + iitp_db 적재 + 주기 실행 자동화 추가)
 (v1.1.0: 다중 소스 수집 계층 + 후처리 보강 모듈 3종(label_assist·dedup·split_manifest))
@@ -203,6 +204,17 @@ python scheduler.py --now      # 즉시 1회
 ```
 
 > 배포 환경 구성(서비스 등록·스케줄·접속정보)은 운영 환경의 `.env` 와 내부 배포 가이드를 따릅니다(공개 저장소에 포함하지 않음).
+
+## 8) 기관 자료실 정기 수집 — `inst_crawl/`
+
+복지관·가족지원센터·체육회·공공기관 자료실의 첨부 문서와 무장애 여행 사진을 기관별 수집기로 받아,
+내용 해시로 지난번에 없던 파일만 골라 `out/inst/<분기>/manifest.csv` 로 남깁니다. 자세한 내용은 `inst_crawl/README.md`.
+
+```bash
+pip install -r inst_crawl/requirements.txt
+scripts/run_inst_crawl.sh                      # 분기 정기 실행
+python -m inst_crawl.runner --no-run           # 받아 둔 파일만 다시 정리
+```
 
 ## 테스트
 
