@@ -110,8 +110,8 @@ def sha256_of(p: Path) -> str:
 def classify_file(p: Path, gubun: str) -> Optional[str]:
     """남길 파일이면 None, 거르면 그 이유."""
     name = p.name
-    if name in LOG_NAMES or name.startswith("run_") and name.endswith(".log"):
-        return "log"
+    if name in LOG_NAMES or name.startswith("run_") and name.endswith(".log") or name.startswith("debug_"):
+        return "log"  # 수집기 실행 기록·오류 화면 캡처
     ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
     if ext == "py" or ext not in KEEP_EXT[gubun]:
         return "ext"
