@@ -2,7 +2,7 @@
 
 Orchestrates the full chain as a single job so a scheduler can invoke it:
 
-    collect (source adapter) -> label -> [download images] -> [load to iitp_db]
+    collect (source adapter) -> label -> [load to iitp_db] -> [download images]
 
 Each stage reuses the standalone modules; this runner only wires them and
 reports a summary. Configuration comes from CLI args / environment (.env), so
@@ -26,6 +26,7 @@ from typing import Callable, Dict, List, Optional
 from collectors import get_collector
 import label_assist
 import db_sink
+import image_store
 
 logger = logging.getLogger("run_pipeline")
 
@@ -46,10 +47,13 @@ def run_pipeline(
     to_db: bool = False,
     collector_factory: Callable = get_collector,
     db_conn=None,
+    image_fetch: Optional[Callable] = None,
 ) -> Dict[str, object]:
-    """Run collect -> label -> [download] -> [db load]. Returns a summary.
+    """Run collect -> label -> [db load] -> [download]. Returns a summary.
 
-    ``collector_factory`` and ``db_conn`` are injectable for testing.
+    ``collector_factory``, ``db_conn`` and ``image_fetch`` are injectable for testing.
+    DB 적재가 다운로드보다 먼저다 — 다운로드가 DB 의 사진 행(img_id)을 기준으로 이미 받은 사진을 건너뛰고
+    결과를 그 행에 기록하기 때문이다.
     """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -76,28 +80,44 @@ def run_pipeline(
         "downloaded": None, "db_items": None, "db_images": None,
     }
 
-    # 3) download images (optional) — delegate to the standalone downloader CLI
-    if download:
-        env = dict(os.environ, URL_CSV_PATH=str(collected))
-        root = env.get("ROOT_DIR") or str(out_dir / "downloads")
-        env["ROOT_DIR"] = root
-        proc = subprocess.run(
-            [sys.executable, str(Path(__file__).resolve().parent / "downloader.py")],
-            env=env, capture_output=True, text=True)
-        summary["downloaded"] = (proc.returncode == 0)
-        logger.info("download step rc=%s", proc.returncode)
-
-    # 4) load to iitp_db (optional)
+    # 3) load to iitp_db (optional)
+    conn = None
+    close = False
     if to_db or db_conn is not None:
         conn = db_conn or db_sink.connect_from_env()
         close = db_conn is None
-        try:
-            res = db_sink.DbSink(conn).load_rows(labeled, ext_sys)
+    try:
+        sink = None
+        if conn is not None:
+            sink = db_sink.DbSink(conn)
+            res = sink.load_rows(labeled, ext_sys)
             summary["db_items"] = res["items"]
             summary["db_images"] = res["images"]
-        finally:
-            if close:
-                conn.close()
+
+        # 4) download images (optional)
+        #    DB 를 쓰는 실행: DB 의 사진 행을 기준으로 새 사진만 고정 경로에 한 번 받고
+        #    경로·해시·중복 여부를 기록한다(image_store). 같은 사진을 매번 다시 받지 않는다.
+        #    DB 없이 파일만 받는 실행: 예전처럼 downloader.py(날짜 폴더)를 그대로 쓴다.
+        if download:
+            root = os.environ.get("ROOT_DIR") or str(out_dir / "downloads")
+            if sink is not None:
+                import requests
+                session = requests.Session()
+                session.headers.update({"User-Agent": "img-downloader/1.0"})
+                session.verify = os.environ.get("VERIFY_SSL", "true").strip().lower() not in ("0", "false", "no", "n", "off")
+                stats = image_store.sync_images(conn, sink, ext_sys, Path(root), session, fetch=image_fetch)
+                summary["downloaded"] = stats["failed"] == 0
+                summary["images"] = stats
+            else:
+                env = dict(os.environ, URL_CSV_PATH=str(collected), ROOT_DIR=root)
+                proc = subprocess.run(
+                    [sys.executable, str(Path(__file__).resolve().parent / "downloader.py")],
+                    env=env, capture_output=True, text=True)
+                summary["downloaded"] = (proc.returncode == 0)
+                logger.info("download step rc=%s", proc.returncode)
+    finally:
+        if close and conn is not None:
+            conn.close()
 
     logger.info("pipeline summary: %s", summary)
     return summary

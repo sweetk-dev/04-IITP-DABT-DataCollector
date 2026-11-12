@@ -81,7 +81,9 @@ class SinkTest(unittest.TestCase):
         self.assertEqual(conn.store["commits"], 1)
         # item upserts + image inserts both present
         item_calls = [c for c in conn.store["calls"] if "collect_item" in c[0]]
-        img_calls = [c for c in conn.store["calls"] if "collect_img" in c[0]]
+        img_calls = [c for c in conn.store["calls"] if "INSERT INTO public.dis_unst_collect_img" in c[0]]
+        retire_calls = [c for c in conn.store["calls"] if "del_yn = 'Y'" in c[0]]
+        self.assertEqual(len(retire_calls), 2)   # 항목마다 목록에 없는 옛 이미지 행 정리
         self.assertEqual(len(item_calls), 2)
         self.assertEqual(len(img_calls), 3)
         # image order assigned 1,2 within first item
