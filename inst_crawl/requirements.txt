@@ -1,0 +1,8 @@
+# 기관 자료실 수집기(inst_crawl/sites) 전용 — 기본 requirements.txt 에 더해 설치
+beautifulsoup4>=4.12
+certifi>=2024.2.2
+urllib3>=2.0
+tqdm>=4.66
+selenium>=4.20
+playwright>=1.45   # 설치 뒤 `playwright install chromium`
+webdriver-manager>=4.0

@@ -12,7 +12,11 @@ collect_list.py  ->  downloader.py  ->  label_assist.py  ->  dedup.py  ->  split
 
 ## 버전
 
-`v1.2.1` — 크롤 항목 ID 사이트 네임스페이스 분리 + robots 취득 타임아웃 + 다운로드 원자적 저장
+`v1.4.2` — 기관 자료실 정기 수집: 수집기 오류 화면 캡처를 수집 대상에서 제외, 장소 분류표 1곳 보강
+(v1.4.1: 무장애 여행 사진을 장소별 분류표로 분류(표에 없는 장소는 미분류로 받고 로그에 남김), 경기관광공사 수집기가 사진을 장소명으로 저장하고 이미 받은 사진은 다시 받지 않음)
+(v1.4.0: 기관 자료실 정기 수집(`inst_crawl/`) 추가 — 기관별 수집기를 분기마다 돌려 지난번에 없던 첨부 문서·사진만 골라 기간별 목록으로 남김)
+(v1.3.0: 주기 실행 이미지 저장 방식 변경 — 같은 사진을 다시 받지 않고 고정 경로에 한 번만 저장, 파일 경로·해시·중복 여부를 DB 에 기록)
+(v1.2.1: 크롤 항목 ID 사이트 네임스페이스 분리 + robots 취득 타임아웃 + 다운로드 원자적 저장)
 (v1.2.0: 관광 무장애여행 공개 API 수집 + iitp_db 적재 + 주기 실행 자동화 추가)
 (v1.1.0: 다중 소스 수집 계층 + 후처리 보강 모듈 3종(label_assist·dedup·split_manifest))
 
@@ -173,8 +177,24 @@ python load_to_db.py out/collected_labeled.csv --ext-sys TOUR_BF_API
 
 ## 7) 주기 실행 자동화 — `run_pipeline.py` / `scheduler.py`
 
-전체 흐름(collect → label → 다운로드 → DB 적재)을 한 번에 실행하거나 주기적으로 돌립니다.
+전체 흐름(collect → label → DB 적재 → 다운로드)을 한 번에 실행하거나 주기적으로 돌립니다.
 설정은 모두 환경변수(`.env`)로 주입합니다.
+
+`--download --to-db` 로 함께 실행하면 이미지는 `image_store.py` 가 DB 의 사진 행을 기준으로 받습니다(v1.3.0).
+
+- 저장 경로: `ROOT_DIR/<출처코드>/<원본번호>_<순번>.<확장자>` — 같은 사진은 언제 받아도 같은 경로입니다.
+- 이미 받은 사진(`download_yn='Y'` 이고 파일이 있음)은 다시 받지 않습니다. 파일이 사라졌으면 다시 받습니다.
+- 받은 결과는 `dis_unst_collect_img` 의 `local_path`·`file_ext`·`download_yn`·`download_err` 에,
+  내용 해시는 `md5_hash`·`sha256_hash` 에 기록합니다. 내용이 같은 사진은 `dup_yn='Y'`·`dup_of_img_id` 로 표시하고
+  사본 파일은 남기지 않습니다(앞 사진 파일을 가리킵니다).
+- `--to-db` 없이 `--download` 만 주면 예전처럼 `downloader.py` 로 `ROOT_DIR/YYYY-MM-DD/` 에 받습니다.
+
+v1.2.x 까지 날짜 폴더에 쌓인 다운로드는 한 번 정리합니다. 기본은 미리 보기이며, 사본은 지우지 않고 보관 폴더로 옮깁니다.
+
+```bash
+python scripts/migrate_dated_downloads.py --root downloads --ext-sys TOUR_BF_API --quarantine _dup_quarantine          # 미리 보기
+python scripts/migrate_dated_downloads.py --root downloads --ext-sys TOUR_BF_API --quarantine _dup_quarantine --apply  # 실행
+```
 
 ```bash
 # 1회 실행
@@ -186,6 +206,17 @@ python scheduler.py --now      # 즉시 1회
 ```
 
 > 배포 환경 구성(서비스 등록·스케줄·접속정보)은 운영 환경의 `.env` 와 내부 배포 가이드를 따릅니다(공개 저장소에 포함하지 않음).
+
+## 8) 기관 자료실 정기 수집 — `inst_crawl/`
+
+복지관·가족지원센터·체육회·공공기관 자료실의 첨부 문서와 무장애 여행 사진을 기관별 수집기로 받아,
+내용 해시로 지난번에 없던 파일만 골라 `out/inst/<분기>/manifest.csv` 로 남깁니다. 자세한 내용은 `inst_crawl/README.md`.
+
+```bash
+pip install -r inst_crawl/requirements.txt
+scripts/run_inst_crawl.sh                      # 분기 정기 실행
+python -m inst_crawl.runner --no-run           # 받아 둔 파일만 다시 정리
+```
 
 ## 테스트
 
