@@ -11,7 +11,9 @@ LIST_BASE = f"{BASE}/bbs/board.php?bo_table=welfaredata"  # 공지 목록 (notic
 SAVE_DIR  = "suwon_rehab_welfare"
 LOG_CSV   = os.path.join(SAVE_DIR, "download_log.csv")
 
-HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; SuwonRehabCrawler/1.0)"}
+# 사이트 방화벽이 크롤러 표시 머리글(…Crawler/1.0)을 403 으로 막는다(2026-11 확인) — 일반 브라우저와 같은 머리글로 요청한다
+HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36",
+           "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", "Accept-Language": "ko-KR,ko;q=0.9"}
 TIMEOUT, RETRY = 15, 3
 SLEEP = 0.5  # 서버 부하 방지를 위해 증가
 

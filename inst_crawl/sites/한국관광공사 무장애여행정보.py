@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 VisitKorea 열린관광(무장애) 이미지 다운로더 (페이지 2~30 수집)
-- 리스트: https://access.visitkorea.or.kr/ms/list.do#^^31^^modifiedDate^{page}
+- 리스트: https://access.visitkorea.or.kr/ms/ajax/list.do (POST, 경기도 areaCode=41, 최신순)
+  2026-11 지역코드가 바뀌어 예전 31(경기도)이 울산을 가리킨다 — 화면 목록도 같은 ajax 로 그린다
 - 상세: swiper background-image URL 추출, a 텍스트(예: "서해수호관 1")로 저장
 """
 import os, re, csv, time, html, unicodedata
@@ -12,17 +13,13 @@ import requests
 from bs4 import BeautifulSoup
 from tqdm import tqdm
 
-# Selenium
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from webdriver_manager.chrome import ChromeDriverManager
 
 # ====== 설정 ======
-PAGE_START, PAGE_END = 31, 40
-LIST_URL_FMT = "https://access.visitkorea.or.kr/ms/list.do#^^31^^modifiedDate^{page}"  # 경기도(31), 최신순
+PAGE_START = 1
+PAGE_END = int(os.getenv("INST_MAX_PAGES", "0")) or None   # 0·미지정 = 목록 끝까지(시험 실행 때 작게 준다)
+AREA_CODE = "41"                                             # 경기도 (2026-11 개편 뒤 코드)
+LIST_PAGE = "https://access.visitkorea.or.kr/ms/list.do"
+LIST_AJAX = "https://access.visitkorea.or.kr/ms/ajax/list.do"
 BASE = "https://access.visitkorea.or.kr"
 LIST_SELECTOR = "ul#listResult li a"  # 상세 링크
 SAVE_DIR = Path("vk_access_images")
@@ -82,94 +79,37 @@ def download(url: str, save_dir: Path, filename_base: str, referer: str | None =
         print(f"  ! 다운로드 실패: {e} :: {url}")
         return None
 
-# ---------- 리스트: 여러 페이지 순회 ----------
-# 기존 collect_detail_links_multi_pages 함수를 이걸로 교체
+# ---------- 리스트: ajax 로 쪽마다 ----------
+def collect_detail_links_multi_pages(page_start: int, page_end) -> list[str]:
+    """목록 화면이 부르는 ajax(POST ajax/list.do)를 직접 불러 상세 주소(detail.do?cotId=)를 모은다.
 
-def collect_detail_links_multi_pages(page_start: int, page_end: int) -> list[str]:
-    options = webdriver.ChromeOptions()
-    options.add_argument("--headless=new")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=1280,2400")
-    options.add_experimental_option("excludeSwitches", ["enable-logging"])
-
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-    wait = WebDriverWait(driver, SEL_WAIT)
-
-    all_urls, seen = [], set()
-
-    try:
-        prev_first_href = None
-
-        for page in range(page_start, page_end + 1):
-            # ① 캐시버스터 추가(서버는 무시하지만 브라우저는 강제 새로고침)
-            cachebuster = int(time.time() * 1000)
-            url = LIST_URL_FMT.format(page=page)
-            url_with_cb = url.replace("list.do", f"list.do?_={cachebuster}")
-
-            # 로드
-            driver.get(url_with_cb)
-
-            # ② 첫 렌더 대기
-            wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, LIST_SELECTOR)))
-
-            # ③ "실제로 페이지가 바뀌었는지" 확인 (첫 카드 href 변화 감시)
-            ok = False
-            for _ in range(15):
-                anchors_now = driver.find_elements(By.CSS_SELECTOR, LIST_SELECTOR)
-                if not anchors_now:
-                    time.sleep(0.3)
-                    continue
-                first_href = anchors_now[0].get_attribute("href") or ""
-                if first_href and first_href != prev_first_href:
-                    prev_first_href = first_href
-                    ok = True
-                    break
-                # 스크립트로 hashchange 유도 및 살짝 대기
-                driver.execute_script("window.dispatchEvent(new HashChangeEvent('hashchange'));")
-                time.sleep(0.4)
-
-            if not ok:
-                print(f"[WARN] 페이지 {page}: 콘텐츠 변화 감지 실패(같은 목록일 수 있음). 계속 진행합니다.")
-
-            # ④ 무한스크롤 로딩 (필요한 만큼 아래로 내리기)
-            prev_count, tries = 0, 0
-            while tries < MAX_SCROLL_TRIES:
-                count_now = len(driver.find_elements(By.CSS_SELECTOR, LIST_SELECTOR))
-                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-                time.sleep(SCROLL_PAUSE)
-                count_after = len(driver.find_elements(By.CSS_SELECTOR, LIST_SELECTOR))
-                if count_after <= count_now:
-                    tries += 1
-                else:
-                    tries = 0
-                if count_after == prev_count:
-                    # 한 번 더 스크롤 후 변화 없으면 종료
-                    driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-                    time.sleep(SCROLL_PAUSE)
-                    if len(driver.find_elements(By.CSS_SELECTOR, LIST_SELECTOR)) == prev_count:
-                        break
-                prev_count = count_after
-
-            # ⑤ 해당 페이지의 링크 수집
-            anchors = driver.find_elements(By.CSS_SELECTOR, LIST_SELECTOR)
-            page_urls = []
-            for a in anchors:
-                href = a.get_attribute("href") or ""
-                if not href:
-                    continue
-                abs_url = urljoin(BASE + "/ms/", href)
-                if "detail.do" in abs_url and abs_url not in seen:
-                    seen.add(abs_url)
-                    page_urls.append(abs_url)
-                    all_urls.append(abs_url)
-
-            print(f"페이지 {page}: 수집 {len(page_urls)}건 (누적 {len(all_urls)}건)")
-
-        return all_urls
-
-    finally:
-        driver.quit()
+    응답 JSON: list[{cotId, title, ...}], totalCnt, rowCnt(쪽당 건수). page_end 가 None 이면 마지막 쪽까지.
+    """
+    s = requests.Session()
+    headers = dict(HEADERS); headers.update({"Referer": LIST_PAGE, "X-Requested-With": "XMLHttpRequest"})
+    s.get(LIST_PAGE, headers=headers, timeout=30)
+    urls, seen, page, last = [], set(), page_start, None
+    while True:
+        r = s.post(LIST_AJAX, data={"bigCategory": "", "smallCategory": "", "areaCode": AREA_CODE, "sigugunCode": "",
+                                     "orderType": "modifiedDate", "page": page}, headers=headers, timeout=30)
+        r.raise_for_status()
+        j = r.json()
+        if last is None:
+            total, per = int(j.get("totalCnt") or 0), int(j.get("rowCnt") or 9)
+            last = max(1, -(-total // per))
+            if page_end:
+                last = min(last, page_end)
+            print(f" - 경기도 {total}건, {last}쪽까지")
+        items = j.get("list") or []
+        for it in items:
+            u = f"{BASE}/ms/detail.do?cotId={it.get('cotId')}"
+            if it.get("cotId") and u not in seen:
+                seen.add(u); urls.append(u)
+        if not items or page >= last:
+            break
+        page += 1
+        time.sleep(0.2)
+    return urls
 
 
 # ---------- 상세 파싱 ----------
@@ -211,7 +151,12 @@ def main():
         if is_new_csv:
             writer.writerow(["detail_url", "image_url", "saved_filename", "title_text"])
 
-        print(f"[1/3] 페이지 {PAGE_START}~{PAGE_END} 리스트 수집…")
+        # 지난 실행에서 받은 사진 주소 — 분기마다 다시 돌리므로 새 사진만 받는다
+        done_urls = set()
+        if not is_new_csv:
+            with open(CSV_PATH, newline="", encoding="utf-8-sig") as f:
+                done_urls = {row[1] for row in csv.reader(f) if len(row) > 1}
+        print(f"[1/3] 페이지 {PAGE_START}~{PAGE_END or '끝'} 리스트 수집…")
         detail_urls = collect_detail_links_multi_pages(PAGE_START, PAGE_END)
         print(f" - 총 수집 상세 링크: {len(detail_urls)}")
 
@@ -223,8 +168,11 @@ def main():
                 if not pairs:
                     continue
                 for img_url, title in pairs:
+                    if img_url in done_urls:
+                        continue
                     p = download(img_url, SAVE_DIR, title, referer=du)
                     if p:
+                        done_urls.add(img_url)
                         saved_cnt += 1
                         writer.writerow([du, img_url, os.path.basename(p), title])
                 time.sleep(0.1)
