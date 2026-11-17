@@ -10,12 +10,6 @@ import requests
 from bs4 import BeautifulSoup
 from tqdm import tqdm
 
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from webdriver_manager.chrome import ChromeDriverManager
 
 
 BASE = "https://www.kbedu.or.kr"
@@ -40,9 +34,11 @@ def sanitize_filename(text: str, max_len: int = 120) -> str:
     # 이모지/비문자 제거(남기고 싶으면 아래 라인 주석처리)
     text = "".join(ch for ch in text if ch.isprintable())
 
-    # 너무 긴 파일명 자르기
+    # 너무 긴 파일명 자르기 — 리눅스 파일명 한도는 255 바이트(한글 1자 3바이트)라 글자 수와 바이트를 함께 본다
     if len(text) > max_len:
         text = text[:max_len].rstrip()
+    while len(text.encode("utf-8")) > 180:
+        text = text[:-1].rstrip()
 
     # 빈 문자열 방지
     return text or "untitled"
@@ -69,98 +65,40 @@ def fetch_html(url: str, headers=None, timeout=15) -> str:
     return r.text
 
 
-def get_all_post_links_with_selenium():
-    """리스트 페이지에서 '더보기'를 끝까지 눌러 모든 게시글 링크 수집."""
-    options = webdriver.ChromeOptions()
-    options.add_argument("--headless=new")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=1280,2000")
+AJAX_URL = BASE + "/ud/php_bin/course_ajax.php"
+PER_PAGE = 20                                     # 목록 페이지의 더보기 버튼 o_n 값
+MAX_PAGES = int(os.getenv("INST_MAX_PAGES", "200"))  # 안전 상한(시험 실행 때 작게 준다)
 
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()),
-                              options=options)
-    driver.get(LIST_URL)
-    wait = WebDriverWait(driver, 15)
 
-    # 최초 리스트가 렌더링 될 때까지 대기
-    wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, "dl.list dt a")))
+def _uids(html_text: str) -> list:
+    return list(dict.fromkeys(re.findall(r"Table=ins_bbs38&(?:amp;)?mode=view&(?:amp;)?uid=(\d+)", html_text)))
 
-    # '더보기'가 있을 때까지 반복 클릭
-    # (id가 바뀔 수 있어 class 기반으로 접근)
-    max_clicks = 200  # 안전장치
-    last_count = 0
-    for _ in range(max_clicks):
-        # 현재 항목 수
-        links_now = driver.find_elements(By.CSS_SELECTOR, "dl.list dt a")
-        count_now = len(links_now)
 
-        # 더보기 요소 찾기 (여러 more box 중 활성 a.more가 있으면 클릭)
-        more_buttons = driver.find_elements(By.CSS_SELECTOR, ".btn_more.morebox a.more")
-        clickable = None
-        for btn in more_buttons:
-            if btn.is_displayed() and btn.is_enabled():
-                clickable = btn
-                break
+def get_all_post_links() -> list:
+    """목록 첫 쪽(20건)과 '더보기' ajax(POST course_ajax.php page=2,3…)로 모든 게시글 링크를 모은다.
 
-        if not clickable:
-            # 더 이상 더보기가 없거나 비활성화
+    2026-11 목록이 dl.list 구조에서 div.news-list-wrap + 더보기 ajax 로 바뀌어 selenium 선택자가 맞지 않게 됐다.
+    ajax 응답은 목록에 덧붙일 HTML 조각이고, 더 없으면 빈 문자열이다.
+    """
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+               "Referer": LIST_URL, "X-Requested-With": "XMLHttpRequest"}
+    first = fetch_html(LIST_URL, headers=headers)
+    uids = _uids(first)
+    m = re.search(r'newsroom_more_btn"[^>]*total_data="(\d+)"', first) or re.search(r'total_data="(\d+)"', first)
+    total = int(m.group(1)) if m else None
+    for page in range(2, MAX_PAGES + 1):
+        if total is not None and (page - 1) * PER_PAGE >= total:
             break
-
-        # 스크롤 후 클릭
-        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", clickable)
+        r = requests.post(AJAX_URL, data={"page": page, "search": "", "o_n": PER_PAGE}, headers=headers, timeout=20)
+        r.encoding = r.apparent_encoding
+        chunk = (r.text or "").strip()
+        new = [u for u in _uids(chunk) if u not in uids]
+        if not chunk or not new:
+            break
+        uids.extend(new)
         time.sleep(0.3)
-        try:
-            clickable.click()
-        except Exception:
-            # 클릭 막히면 한 번 더 시도
-            time.sleep(0.8)
-            try:
-                driver.execute_script("arguments[0].click();", clickable)
-            except Exception:
-                break
-
-        # 새 항목 로딩 대기 (개수 증가 감지)
-        for _ in range(20):
-            time.sleep(0.25)
-            new_links = driver.find_elements(By.CSS_SELECTOR, "dl.list dt a")
-            if len(new_links) > count_now:
-                break
-
-        # 더 이상 증가가 없으면 중단
-        if len(driver.find_elements(By.CSS_SELECTOR, "dl.list dt a")) == count_now:
-            # 한 번 더 확인
-            time.sleep(0.5)
-            if len(driver.find_elements(By.CSS_SELECTOR, "dl.list dt a")) == count_now:
-                break
-
-        # 안전 조건: 전체가 더 이상 늘지 않으면 중단
-        if count_now == last_count:
-            pass
-        last_count = count_now
-
-    # 모든 링크 수집
-    anchors = driver.find_elements(By.CSS_SELECTOR, "dl.list dt a")
-    detail_urls = []
-    for a in anchors:
-        href = a.get_attribute("href")
-        if not href:
-            continue
-        # 상대경로 보정
-        if href.startswith("javascript"):
-            continue
-        abs_url = urljoin(LIST_URL, href)
-        detail_urls.append(abs_url)
-
-    # 중복 제거 (앞쪽 우선)
-    seen = set()
-    unique_urls = []
-    for u in detail_urls:
-        if u not in seen:
-            seen.add(u)
-            unique_urls.append(u)
-
-    driver.quit()
-    return unique_urls
+    print(f" - 목록 전체 {total if total is not None else '?'}건 중 링크 {len(uids)}개")
+    return [f"{BASE}/ud/bbs.html?Table=ins_bbs38&mode=view&uid={u}" for u in uids]
 
 
 def pair_images_and_captions(soup: BeautifulSoup):
@@ -247,11 +185,16 @@ def download_image(url: str, save_path: Path, headers=None, timeout=30) -> bool:
 
 def main():
     print("[1/4] 리스트에서 모든 상세 링크 수집 중…")
-    detail_urls = get_all_post_links_with_selenium()
+    detail_urls = get_all_post_links()
     print(f" - 수집된 상세 링크: {len(detail_urls)}개")
 
     # CSV 헤더 준비
     is_new_csv = not CSV_PATH.exists()
+    # 지난 실행에서 받은 사진 주소 — 분기마다 다시 돌리므로 새 사진만 받는다
+    done_urls = set()
+    if not is_new_csv:
+        with open(CSV_PATH, newline="", encoding="utf-8-sig") as f:
+            done_urls = {row[1] for row in csv.reader(f) if len(row) > 1}
     with open(CSV_PATH, "a", newline="", encoding="utf-8-sig") as csvfile:
         writer = csv.writer(csvfile)
         if is_new_csv:
@@ -282,6 +225,8 @@ def main():
 
             # 글 내 여러 이미지 처리
             for idx, (img_url, caption) in enumerate(pairs, start=1):
+                if img_url in done_urls:
+                    continue
                 # 파일명 생성
                 base_name = sanitize_filename(caption or "image")
                 ext = ensure_ext_from_url(img_url)
@@ -303,6 +248,7 @@ def main():
                     ok = False
 
                 if ok:
+                    done_urls.add(img_url)
                     writer.writerow([post_url, img_url, candidate.name, caption])
                 else:
                     print(f"  ! 상태 비정상으로 스킵: {img_url}")

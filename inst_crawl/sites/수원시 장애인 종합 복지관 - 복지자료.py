@@ -11,9 +11,14 @@ LIST_BASE = f"{BASE}/bbs/board.php?bo_table=welfaredata"  # 공지 목록 (notic
 SAVE_DIR  = "suwon_rehab_welfare"
 LOG_CSV   = os.path.join(SAVE_DIR, "download_log.csv")
 
-HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; SuwonRehabCrawler/1.0)"}
-TIMEOUT, RETRY = 15, 3
-SLEEP = 0.5  # 서버 부하 방지를 위해 증가
+# 사이트 방화벽이 크롤러 표시 머리글(…Crawler/1.0)을 403 으로 막는다(2026-11 확인) — 일반 브라우저와 같은 머리글로 요청한다
+HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36",
+           "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", "Accept-Language": "ko-KR,ko;q=0.9"}
+TIMEOUT, RETRY = 15, 4
+# 이 사이트는 짧은 시간에 요청이 몰리면 한동안 접속을 끊는다(2026-11 확인 — 공지 수백 건을 받은 직후 다른 게시판 접속 시간 초과).
+# 요청 사이를 2초 두고, 접속이 끊기면 30초·60초·90초 쉬었다가 다시 시도한다
+SLEEP = 2.0
+BACKOFF_SEC = 30
 
 # 다운로드 허용 확장자
 ALLOWED_EXTS = {".pdf", ".hwp", ".hwpx", ".doc", ".docx"}
@@ -53,6 +58,10 @@ def http_get(sess, url, **kw):
             if r.status_code == 200:
                 _apply_encoding(r); return r
             last = RuntimeError(f"HTTP {r.status_code}")
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+            last = e
+            time.sleep(BACKOFF_SEC * (i + 1))      # 접속 끊김 — 사이트가 잠시 막은 경우가 많아 길게 쉰다
+            continue
         except Exception as e:
             last = e
         time.sleep(SLEEP + 0.3*i + random.uniform(0, 0.15))

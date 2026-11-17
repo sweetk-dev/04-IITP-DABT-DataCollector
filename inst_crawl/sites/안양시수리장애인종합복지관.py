@@ -1,3 +1,5 @@
+# 안양시수리장애인종합복지관 자료 수집기 (2026-11 사이트 개편 반영)
+# 게시판 이름이 bo_table=notice 에서 숫자로 바뀌었다 — 공지사항 1004 · 복지 정보 1009 · 발간자료 1012
 # pip install requests beautifulsoup4
 import os, re, csv, time, html, random
 import requests, urllib3, certifi
@@ -11,7 +13,7 @@ TIMEOUT, RETRY = 15, 3
 SLEEP_LIST, SLEEP_FILE = 0.3, 0.15
 
 # 저장 허용 확장자 (원하시면 비우거나 추가하세요)
-ALLOWED_EXTS = {".pdf", ".hwp", ".hwpx", ".doc", ".docx", ".jpg", ".jpeg", ".png"}
+ALLOWED_EXTS = {".pdf", ".hwp", ".hwpx", ".doc", ".docx", ".xls", ".xlsx", ".zip", ".jpg", ".jpeg", ".png"}
 
 # ================ 파일명 복원 (깨짐 방지) ================
 from email.header import decode_header as mime_decode
@@ -179,20 +181,43 @@ def save_stream(sess, file_url: str, title: str, link_text: str | None, folder: 
 
 # ================= 기관별 설정 =================
 CONFIGS = [
-
-    # 안양시수리장애인종합복지관 (예상: Gnuboard 계열)
+    # 안양시수리장애인종합복지관 — 공지사항
     {
-        "name": "안양시수리장애인종합복지관",
+        "name": "안양시수리장애인종합복지관_공지사항",
         "base": "https://www.asrc.or.kr",
-        "list_url": "https://www.asrc.or.kr/bbs/board.php?bo_table=notice",
-        "detail_link_sel": "a[href*='bo_table=notice'][href*='wr_id=']",
-        "attach_link_sel": ".view_file a, .attach a, a[href*='download'], a[href$='.pdf'], a[href$='.hwp'], a[href$='.hwpx'], a[href$='.doc'], a[href$='.docx'], a[href$='.jpg'], a[href$='.png']",
+        "list_url": "https://www.asrc.or.kr/bbs/board.php?bo_table=1004",
+        "detail_link_sel": "a[href*='bo_table=1004'][href*='wr_id=']",
+        "attach_link_sel": "#bo_v_file a, .view_file a, .bo_v_file a, a[href*='download.php'], a[href$='.pdf'], a[href$='.hwp'], a[href$='.hwpx'], a[href$='.doc'], a[href$='.docx'], a[href$='.xls'], a[href$='.xlsx'], a[href$='.zip']",
         "page_param": "page",
     },
-
+    # 안양시수리장애인종합복지관 — 복지정보
+    {
+        "name": "안양시수리장애인종합복지관_복지정보",
+        "base": "https://www.asrc.or.kr",
+        "list_url": "https://www.asrc.or.kr/bbs/board.php?bo_table=1009",
+        "detail_link_sel": "a[href*='bo_table=1009'][href*='wr_id=']",
+        "attach_link_sel": "#bo_v_file a, .view_file a, .bo_v_file a, a[href*='download.php'], a[href$='.pdf'], a[href$='.hwp'], a[href$='.hwpx'], a[href$='.doc'], a[href$='.docx'], a[href$='.xls'], a[href$='.xlsx'], a[href$='.zip']",
+        "page_param": "page",
+    },
+    # 안양시수리장애인종합복지관 — 발간자료
+    {
+        "name": "안양시수리장애인종합복지관_발간자료",
+        "base": "https://www.asrc.or.kr",
+        "list_url": "https://www.asrc.or.kr/bbs/board.php?bo_table=1012",
+        "detail_link_sel": "a[href*='bo_table=1012'][href*='wr_id=']",
+        "attach_link_sel": "#bo_v_file a, .view_file a, .bo_v_file a, a[href*='download.php'], a[href$='.pdf'], a[href$='.hwp'], a[href$='.hwpx'], a[href$='.doc'], a[href$='.docx'], a[href$='.xls'], a[href$='.xlsx'], a[href$='.zip']",
+        "page_param": "page",
+    },
 ]
 
 # ================= 크롤링 로직 =================
+# 그누보드 게시판: 목록 page=N → 상세(wr_id) → 첨부(download.php) 저장.
+#  - 상단 고정 공지는 모든 쪽에 다시 나오므로, 한 쪽에서 새 게시글이 하나도 없으면 끝으로 본다
+#    (마지막 쪽 뒤에도 고정 공지만 보이는 게시판에서 무한히 넘어가지 않게).
+#  - 작업 폴더의 download_log.csv 에 이미 있는 첨부 주소는 다시 받지 않는다 — 분기마다 다시 돌리므로
+#    처음 실행 뒤에는 새 게시글의 첨부만 받는다.
+MAX_PAGES = int(os.getenv("INST_MAX_PAGES", "500"))   # 안전 상한(시험 실행 때 작게 준다)
+
 def extract_detail_links(list_html, list_url, sel):
     soup = BeautifulSoup(list_html, "html.parser")
     links = []
@@ -200,39 +225,37 @@ def extract_detail_links(list_html, list_url, sel):
         href = a.get("href")
         if href:
             links.append(urljoin(list_url, href))
-    # 보조: 공통 제목 셀렉터
+    # 보조: 그누보드 공통 제목 셀렉터
     if not links:
         for a in soup.select(".bo_tit a, .td_subject a, .subject a"):
             href = a.get("href")
-            if href:
+            if href and "wr_id=" in href:
                 links.append(urljoin(list_url, href))
-    # 중복 제거
-    return list(dict.fromkeys(links))
+    # 같은 글의 쪽 번호·검색 인자만 다른 주소는 하나로 본다
+    norm = []
+    for u in links:
+        u = re.sub(r"&(page|sca|sfl|stx|sst|sod|spt)=[^&]*", "", u)
+        norm.append(u)
+    return list(dict.fromkeys(norm))
 
 def extract_attachments(detail_html, detail_url, attach_sel):
     soup = BeautifulSoup(detail_html, "html.parser")
     links = []
-    # 기관 맞춤 셀렉터
     for a in soup.select(attach_sel):
         href = a.get("href")
-        text = a.get_text(strip=True)
-        if href:
+        text = a.get_text(" ", strip=True)
+        if href and not href.startswith("javascript"):
             links.append((urljoin(detail_url, href), text))
-    # 보조: 확장자/다운로드 키워드
-    for a in soup.select(
-        "a[href$='.pdf'], a[href$='.hwp'], a[href$='.hwpx'], a[href$='.doc'], a[href$='.docx'], "
-        "a[href$='.jpg'], a[href$='.jpeg'], a[href$='.png'], a[href*='download']"
-    ):
-        href = a.get("href")
-        text = a.get_text(strip=True)
-        if href:
-            links.append((urljoin(detail_url, href), text))
-    # 중복 제거(파일URL 기준)
     seen, uniq = set(), []
     for u, t in links:
         if u not in seen:
             seen.add(u); uniq.append((u, t))
     return uniq
+
+def _attach_name(text: str) -> str:
+    """그누보드 첨부 링크 글자 '파일명.hwp (123.4K)' 에서 크기 표시를 뗀다."""
+    t = re.sub(r"\s*\([0-9.,]+\s*[KMG]?B?\)\s*$", "", text or "", flags=re.I)
+    return t.strip()
 
 def crawl_institution(cfg):
     name = cfg["name"]
@@ -245,21 +268,22 @@ def crawl_institution(cfg):
     os.makedirs(inst_folder, exist_ok=True)
 
     log_csv = os.path.join(inst_folder, "download_log.csv")
-    if not os.path.exists(log_csv):
+    done = set()
+    if os.path.exists(log_csv):
+        with open(log_csv, newline="", encoding="utf-8") as f:
+            for row in csv.reader(f):
+                if len(row) >= 4:
+                    done.add(row[3])
+    else:
         with open(log_csv, "w", newline="", encoding="utf-8") as f:
             csv.writer(f).writerow(["inst", "title", "detail_url", "file_url", "saved_path"])
 
     sess = requests.Session()
-    page = 1
-    total_posts, total_files = 0, 0
+    seen_posts = set()
+    total_posts, total_files, skipped = 0, 0, 0
 
-    while True:
-        # page 파라미터 붙이기/치환
-        if f"{page_param}=" in list_url:
-            url = re.sub(rf"({page_param}=)\d+", rf"\g<1>{page}", list_url)
-        else:
-            url = f"{list_url}{'&' if '?' in list_url else '?'}{page_param}={page}"
-
+    for page in range(1, MAX_PAGES + 1):
+        url = f"{list_url}{'&' if '?' in list_url else '?'}{page_param}={page}"
         print(f"\n[{name}] 리스트 {page}페이지: {url}")
         try:
             lr = http_get(sess, url)
@@ -267,10 +291,11 @@ def crawl_institution(cfg):
             print("  - 리스트 실패:", e)
             break
 
-        details = extract_detail_links(lr.text, url, detail_sel)
+        details = [d for d in extract_detail_links(lr.text, url, detail_sel) if d not in seen_posts]
         if not details:
-            print("  - 더 이상 게시물이 없습니다. 종료.")
+            print("  - 새 게시물이 없습니다. 종료.")
             break
+        seen_posts.update(details)
 
         for durl in details:
             try:
@@ -279,20 +304,25 @@ def crawl_institution(cfg):
                 print("  - 상세 실패:", durl, "→", e); continue
 
             dsoup = BeautifulSoup(dr.text, "html.parser")
-            title = dsoup.find("title").get_text(strip=True) if dsoup.find("title") else durl
+            t_el = dsoup.select_one("#bo_v_title .bo_v_tit, #bo_v_title, h2#bo_v_title")
+            title = t_el.get_text(" ", strip=True) if t_el else (dsoup.title.get_text(strip=True) if dsoup.title else durl)
             title_safe = _clean_name(title)
 
             attaches = extract_attachments(dr.text, durl, attach_sel)
             if not attaches:
-                print(f"  ▶ [{title_safe}] 첨부 없음"); continue
+                continue
 
             print(f"  ▶ [{title_safe}] 첨부 {len(attaches)}건")
             total_posts += 1
             for file_url, link_text in attaches:
+                if file_url in done:
+                    skipped += 1
+                    continue
                 try:
-                    saved = save_stream(sess, file_url, title_safe, link_text, inst_folder)
+                    saved = save_stream(sess, file_url, title_safe, _attach_name(link_text), inst_folder)
                     if saved:
                         total_files += 1
+                        done.add(file_url)
                         print("    - 저장:", os.path.basename(saved))
                         with open(log_csv, "a", newline="", encoding="utf-8") as f:
                             csv.writer(f).writerow([name, title_safe, durl, file_url, saved])
@@ -301,11 +331,9 @@ def crawl_institution(cfg):
                 except Exception as e:
                     print("    - 다운로드 실패:", file_url, "→", e)
                 time.sleep(SLEEP_FILE)
-
-        page += 1
         time.sleep(SLEEP_LIST)
 
-    print(f"\n[{name}] 완료: 게시글 {total_posts}건, 파일 {total_files}건 저장 → {inst_folder}")
+    print(f"\n[{name}] 완료: 첨부 있는 게시글 {total_posts}건, 새 파일 {total_files}건, 이미 받은 첨부 {skipped}건 → {inst_folder}")
 
 def main():
     os.makedirs(SAVE_ROOT, exist_ok=True)

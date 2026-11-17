@@ -16,8 +16,8 @@ sites/<기관>.py   →   작업 폴더(<work>/<기관>/)   →   새 파일 고
 
 | 구분 | 남기는 파일 | 수집기 |
 |---|---|---|
-| 기초 | 문서(pdf·hwp·hwpx·doc(x)·xls(x)·ppt(x)·zip·alz·txt·csv), 1KB 이상 | 기관 자료실 21개(사용 18) |
-| 이동권 | 사진(jpg·png·gif·webp·bmp), 10KB 이상 | 무장애 여행 3개(사용 1) |
+| 기초 | 문서(pdf·hwp·hwpx·doc(x)·xls(x)·ppt(x)·zip·alz·txt·csv), 1KB 이상 | 기관 자료실 21개(사용 20) |
+| 이동권 | 사진(jpg·png·gif·webp·bmp), 10KB 이상 | 무장애 여행 3개(사용 3) |
 
 분류는 2025년 제출 분류를 그대로 쓴다 — 기관 자료실은 기관 11군, 무장애 여행 사진은 장소별 유형(관람_시설·관람_자연·체험·활동·카페 등, 아래 「새 파일 고르기」).
 `enabled: false` 는 사이트 구조가 바뀌어 지금 수집기로는 받지 못하는 곳이다(`note` 에 이유). 고치면 `true` 로 돌린다.
@@ -45,7 +45,8 @@ python -m inst_crawl.runner ... --seed-hashes base_sha256.txt                 # 
 | `INST_TIMEOUT` | `14400` | 수집기 1개당 최대 실행 초 |
 | `INST_PYTHON` | 실행 중인 python | 수집기를 돌릴 python |
 
-사진 수집기(경기관광공사)는 Playwright(Chromium)를 쓴다 — `playwright install chromium`. 꺼 둔 교보·한국관광공사 수집기는 selenium·Chrome.
+사진 수집기 중 경기관광공사는 Playwright(Chromium)를 쓴다 — `playwright install chromium`. 교보교육재단·한국관광공사는 목록을 사이트의 ajax 로 받아 브라우저가 필요 없다(v1.4.3).
+시험 실행 때는 `INST_MAX_PAGES=2` 처럼 목록 쪽 수를 줄일 수 있다(그누보드 게시판·교보·한국관광공사 수집기).
 
 ## 새 파일 고르기
 
